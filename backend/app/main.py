@@ -5,6 +5,7 @@ import numpy as np
 import cv2
 import pytesseract
 import io
+import re
 
 app = FastAPI()
 
@@ -32,11 +33,96 @@ def preprocess_image(image_bytes: bytes):
         2,
     )
 
+
+
     return thresh
 
 @app.get("/")
 def root():
     return {"message": "Backend is running"}
+
+def parse_fields(raw_text: str):
+    result = {
+        "name": None,
+        "designation": None,
+        "id_number": None,
+        "issued_date": None,
+        "expiry_date": None,
+    }
+
+    lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+
+    #first clean the output
+    cleaned_lines = []
+    for line in lines:
+        cleaned = re.sub(r"^[^A-Za-z0-9]+", "", line).strip()
+        cleaned_lines.append(cleaned)
+    
+    #pattern to identify dates (currently only matches my sample format dd-mmm-yyyy)
+    date_pattern = r"\d{1,2}\s*-\s*[A-Za-z]{3}\s*-\s*\d{4}"
+
+    for line in cleaned_lines:
+        lower = line.lower()
+
+        print("LINE:", line)
+        print("LOWER:", line.lower())
+
+        if "issued" in lower or "joined" in lower:
+            match = re.search(date_pattern, line) 
+
+            if match:
+                result["issued_date"] = re.sub(r"\s+", "", match.group()).replace("/", "-")
+            
+        if "expires" in lower:
+            match = re.search(date_pattern, line)
+            if match:
+                result["expiry_date"] = re.sub(r"\s+", "", match.group()).replace("/", "-")
+
+        
+    #ID number recognition
+    
+    for line in cleaned_lines:
+        if "id" in line.lower():
+            match = re.search(r"\d{6,}", line)
+            if match:
+                result["id_number"] = match.group()
+                break
+
+    #fallback if the 'ID' is missed
+    if result["id_number"] is None:
+        for line in cleaned_lines:
+            match = re.search(r"\d{6,}", line)
+            if match:
+                result["id_number"] = match.group()
+                break
+
+    #name and role/title
+    candidate_lines = []
+    for line in cleaned_lines:
+        lower = line.lower()
+
+        if "issued" in lower or "expire" in lower or "id" in lower:
+            continue
+        if re.search(r"\d{4,}", line):
+            continue
+        if len(line) < 3:
+            continue
+        candidate_lines.append(line)
+
+    if len(candidate_lines) >= 1:
+        result["name"] = candidate_lines[0]
+
+    if len(candidate_lines) >= 2:
+        result["designation"] = candidate_lines[1]
+
+
+    print("RAW TEXT:", repr(raw_text))
+    print("RAW TEXT LENGTH:", len(raw_text))
+
+    return result
+
+
+
 
 @app.post("/extract")
 async def extract_text(file: UploadFile = File(...)):
@@ -47,22 +133,14 @@ async def extract_text(file: UploadFile = File(...)):
     processed = preprocess_image(image_bytes)
     raw_text = pytesseract.image_to_string(processed)
 
-    
-    for word in raw_text:
-        if word == " 3":
-            word == " + "
-    
-    split = raw_text.split('+')
-
-    name = split[1]
-    id_number = split[2]
-    print(raw_text)
+    parsed = parse_fields(raw_text)
 
 
     return {
-        "name": name,
-        "id_number": id_number,
-        "date_of_birth": None,
-        "expiry_date": None,
-        "raw_text": split,
+        "name": parsed["name"],
+        "designation": parsed["designation"],
+        "id_number": parsed["id_number"],
+        "issued_date": parsed["issued_date"],
+        "expiry_date": parsed["expiry_date"],
+        "raw_text": raw_text,
     }

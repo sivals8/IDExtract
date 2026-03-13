@@ -83,9 +83,10 @@ export default function App() {
         {result && (
           <div className="mt-6 rounded-xl border p-4">
             <h2 className="text-xl font-semibold mb-2">Results</h2>
-            <p><strong>Name:</strong> {result.name|| "Not found"}</p>
+            <p><strong>Name:</strong> {result.name || "Not found"}</p>
+            <p><strong>Designation:</strong> {result.designation || "Not found"}</p>
             <p><strong>ID Number:</strong> {result.id_number || "Not found"}</p>
-            <p><strong>Date of Birth:</strong> {result.date_of_birth || "Not found"}</p>
+            <p><strong>Issued Date:</strong> {result.issued_date || "Not found"}</p>
             <p><strong>Expiry Date:</strong> {result.expiry_date || "Not found"}</p>
 
             <div className="mt-4">
