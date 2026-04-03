@@ -36,6 +36,7 @@ export default function App() {
     };
   }, [preview]);
 
+  const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
   const handleUpload = async () => {
     if (!file) {
       setError("Please choose an image first.");
@@ -47,9 +48,8 @@ export default function App() {
 
     const formData = new FormData();
     formData.append("file", file);
-
     try {
-      const response = await fetch("http://127.0.0.1:8000/extract", {
+      const response = await fetch(`${API_URL}/extract`, {
         method: "POST",
         body: formData,
       });
