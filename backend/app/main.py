@@ -15,7 +15,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# before preprocessing, want to rectify card first by
+# before preprocessing, need to rectify card first by
 # 1. finding the boundary of the card vs the surface its on
 # 2. warp card so it becomes 2D (removes any angling from the way the pic is took)
 def load_image(image_bytes):
@@ -131,6 +131,7 @@ def rectify_card(image_bgr):
         return image_bgr
 
     return warped
+
 # since my ID parser searches for a pattern of numbers, sometimes dates
 # get considered as ID number if no ID is found. To avoid this, 
 # this function looks for the regex of the date formats that I'm
@@ -151,6 +152,7 @@ def looks_like_date(text: str) -> bool:
 
 # preprpcessing image so ocr can understand text better
 def preprocess_image(image_bgr):
+    #resizing img (3x) so ocr can read it better
     enlarged = cv2.resize(
         image_bgr,
         None,
@@ -159,21 +161,27 @@ def preprocess_image(image_bgr):
         interpolation=cv2.INTER_CUBIC
     )
 
+    #converting from color to grayscale so ocr can clearly see the 
+    #intensity difference between text and background
     gray = cv2.cvtColor(enlarged, cv2.COLOR_BGR2GRAY)
 
+    #using histogram equalization to enhance contrast within regions
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     gray = clahe.apply(gray)
 
+    #using gaussian blur to remove high f. noise to smooth out grainy
     gray = cv2.GaussianBlur(gray, (3, 3), 0)
 
+    #high contrast grayscale imahe is now ready for the OCR
     return gray
 
 
 @app.get("/")
 def root():
-    return {"message": "Backend is running"}
+    return {"message": "Backend is up & running!"}
 
 
+# normalizing ID line since theres so many variations of its title
 def normalize_line(line: str) -> str:
     line = line.strip()
     line = re.sub(r"\s+", " ", line)
@@ -188,19 +196,19 @@ def normalize_line(line: str) -> str:
 def clean_person_text(text: str):
     text = text.strip()
 
-    # remove common separators
+    # remove common separators like / : 
     text = text.replace("|", " ")
     text = text.replace("/", " ")
     text = re.sub(r"\s+", " ", text).strip()
 
-    # keep only word-like tokens
+    # use regex to keep splits that are similar to a word format
     words = text.split()
     words = [w for w in words if re.match(r"^[A-Za-z\-\.]+$", w)]
 
     if not words:
         return None
 
-    # first preference: 2-3 capitalized words
+    # ideally, there's two maybe 3 capital letters when identifying name
     best = None
     best_score = -1
 
@@ -209,11 +217,11 @@ def clean_person_text(text: str):
             candidate_words = words[i:j]
             candidate = " ".join(candidate_words)
 
-            # reject obvious junk
+            # ignore text common text that my processor often confuses as peoples names
             if candidate.lower() in ["company", "employee", "card"]:
                 continue
 
-            # score capitalized name-like phrases highest
+            # set a score where phrases with caps are rankes higher 
             if re.match(r"^[A-Z][a-z]+(?: [A-Z][a-z]+){1,2}$", candidate):
                 score = len(candidate_words) * 10 + len(candidate)
                 if score > best_score:
@@ -223,7 +231,7 @@ def clean_person_text(text: str):
     if best:
         return best
 
-    # fallback: return longest alphabetic phrase
+    # fallback: if nothing is found, result to longest phrase with letters only
     cleaned = " ".join(words)
     if len(cleaned) >= 4 and re.search(r"[A-Za-z]", cleaned):
         return cleaned
@@ -340,13 +348,13 @@ def parse_fields(raw_text: str):
                     if candidate:
                         result["id_number"] = candidate
 
-        # small old-card fallback
+        #instant fallback for id, locating 
         if result["id_number"] is None and ("id" in lower or "no" in lower):
             matches = re.findall(r"\b\d{6,}\b", line)
             if matches:
                 result["id_number"] = max(matches, key=len)
 
-        # paired date case: "From: Expires:" on one line, dates below
+        # in the cases where dates (issued and expiry) and their headers are on different lines
         if ("from" in lower or "issued" in lower or "joined" in lower) and ("expire" in lower):
             dates = extract_dates_from_line(line)
             if len(dates) < 2 and i + 1 < len(lines):
@@ -358,21 +366,22 @@ def parse_fields(raw_text: str):
                 if result["expiry_date"] is None:
                     result["expiry_date"] = normalize_date(dates[1])
                 continue
-
-        if result["issued_date"] is None and ("issued" in lower or "joined" in lower or "from" in lower):
+        #just for issued date (on same line as header)
+        if result["issued_date"] is None and ("issued" in lower or "joined" in lower or "from" in lower or "iss" in lower):
             dates = extract_dates_from_line(line)
             if not dates and i + 1 < len(lines):
                 dates = extract_dates_from_line(lines[i + 1])
             if dates:
                 result["issued_date"] = normalize_date(dates[0])
-
-        if result["expiry_date"] is None and ("expire" in lower or "expires" in lower or "expiry" in lower):
+        #just for expiry date (on same line as header)
+        if result["expiry_date"] is None and ("expire" in lower or "expires" in lower or "expiry" in lower or "exp" in lower):
             dates = extract_dates_from_line(line)
             if not dates and i + 1 < len(lines):
                 dates = extract_dates_from_line(lines[i + 1])
             if dates:
                 result["expiry_date"] = normalize_date(dates[0])
 
+    # fallback for id if it wasn't found originally 
     if result["id_number"] is None:
         for line in lines:
             lower = line.lower()
@@ -393,21 +402,25 @@ def parse_fields(raw_text: str):
 @app.post("/extract")
 async def extract_text(file: UploadFile = File(...)):
     try:
+        #ensure file type is correct for image
         if not file.content_type or not file.content_type.startswith("image/"):
             return {"error": "Please upload a valid image file."}
 
+        #read img byte and convert to openCV (BGR) format
         image_bytes = await file.read()
         image_bgr = load_image(image_bytes)
-
+        
+        #ensure image was actually decoded
         if image_bgr is None:
             return {"error": "Image decoding failed"}
 
-        # try original image first
+        # try OCR on decoded image
         processed_original = preprocess_image(image_bgr)
 
         if processed_original is None:
             return {"error": "Preprocessing failed"}
 
+        #applying adaptive threshilfing to increase text contrast
         thresh_original = cv2.adaptiveThreshold(
             processed_original,
             255,
@@ -417,6 +430,7 @@ async def extract_text(file: UploadFile = File(...)):
             15
         )
 
+        #apply ocr to grayscale and thresh.
         raw_text_gray_original = pytesseract.image_to_string(
             processed_original,
             config="--oem 3 --psm 6"
@@ -426,6 +440,7 @@ async def extract_text(file: UploadFile = File(...)):
             config="--oem 3 --psm 6"
         )
 
+        # choose the better ocr result based on length of text
         best_original = (
             raw_text_thresh_original
             if len(raw_text_thresh_original.strip()) > len(raw_text_gray_original.strip())
