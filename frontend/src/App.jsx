@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useDropzone } from "react-dropzone";
 
 export default function App() {
   const [file, setFile] = useState(null);
@@ -7,15 +8,33 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const handleFileChange = (e) => {
-    const selectedFile = e.target.files?.[0];
+  const onDrop = useCallback((acceptedFiles) => {
+    const selectedFile = acceptedFiles?.[0];
     if (!selectedFile) return;
 
     setFile(selectedFile);
     setPreview(URL.createObjectURL(selectedFile));
     setResult(null);
     setError("");
-  };
+  }, []);
+
+  //allow the drag and drop feature using react-dropzone package
+  const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
+    onDrop,
+    accept: {
+      "image/*": [],
+    },
+    multiple: false,
+    noClick: true,
+  });
+
+  useEffect(() => {
+    return () => {
+      if (preview) {
+        URL.revokeObjectURL(preview);
+      }
+    };
+  }, [preview]);
 
   const handleUpload = async () => {
     if (!file) {
@@ -45,23 +64,51 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#15141f] p-8">
+    <div className="min-h-screen bg-[#15141f] p-8 text-white">
       <div className="mx-auto max-w-3xl">
-        <h1 className="text-3xl font-bold mb-4">IDExtract</h1>
-        <p className="text-white-600 mb-6">
+        <h1 className="mb-4 text-3xl font-bold">IDExtract</h1>
+        <p className="mb-6 text-gray-300">
           Upload an image and extract text from it.
         </p>
 
-        <input
-          type="file"
-          accept="image/*"
-          onChange={handleFileChange}
-          className="mb-4 block w-full"
-        />
+        <div
+          {...getRootProps()}
+          className={`mb-4 cursor-pointer rounded-xl border-2 border-dashed p-8 text-center transition ${
+            isDragActive
+              ? "border-teal-400 bg-teal-900/20"
+              : "border-gray-600 bg-[#1c1b29] hover:border-teal-600"
+          }`}
+        >
+          <input {...getInputProps()} />
+
+          <p className="mb-3 text-lg font-medium">
+            {isDragActive
+              ? "Drop the image here..."
+              : "Drag and drop an image here"}
+          </p>
+
+          <p className="mb-4 text-sm text-gray-400">
+            or click the button below to browse
+          </p>
+
+          <button
+            type="button"
+            onClick={open}
+            className="rounded-xl bg-teal-800 px-5 py-2 text-white transition hover:bg-teal-900"
+          >
+            Choose Image
+          </button>
+
+          {file && (
+            <p className="mt-4 text-sm text-gray-300">
+              Selected file: {file.name}
+            </p>
+          )}
+        </div>
 
         <button
           onClick={handleUpload}
-          className="rounded-xl bg-teal-800 px-5 py-2 text-white hover:bg-teal-900 transition"
+          className="rounded-xl bg-teal-800 px-5 py-2 text-white transition hover:bg-teal-900 disabled:opacity-50"
           disabled={loading}
         >
           {loading ? "Processing..." : "Extract Info"}
@@ -71,18 +118,18 @@ export default function App() {
 
         {preview && (
           <div className="mt-6">
-            <h2 className="text-xl font-semibold mb-2">Preview</h2>
+            <h2 className="mb-2 text-xl font-semibold">Preview</h2>
             <img
               src={preview}
               alt="Preview"
-              className="max-h-80 rounded-lg border"
+              className="max-h-80 rounded-lg border border-gray-600"
             />
           </div>
         )}
 
         {result && (
-          <div className="mt-6 rounded-xl border p-4">
-            <h2 className="text-xl font-semibold mb-2">Results</h2>
+          <div className="mt-6 rounded-xl border border-gray-600 p-4">
+            <h2 className="mb-2 text-xl font-semibold">Results</h2>
             <p><strong>Name:</strong> {result.name || "Not found"}</p>
             <p><strong>Designation:</strong> {result.designation || "Not found"}</p>
             <p><strong>ID Number:</strong> {result.id_number || "Not found"}</p>
@@ -91,7 +138,7 @@ export default function App() {
 
             <div className="mt-4">
               <h3 className="font-semibold">Raw OCR Text</h3>
-              <pre className="mt-2 p-3 text-sm">
+              <pre className="mt-2 whitespace-pre-wrap rounded-lg bg-[#1c1b29] p-3 text-sm">
                 {result.raw_text || "No text returned."}
               </pre>
             </div>
