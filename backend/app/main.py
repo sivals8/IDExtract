@@ -15,6 +15,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+#testing pytesseract
+@app.get("/test-tesseract")
+def test_tesseract():
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["tesseract", "--version"],
+            capture_output=True,
+            text=True
+        )
+        return {
+            "returncode": result.returncode,
+            "stdout": result.stdout[:200],
+            "stderr": result.stderr[:200],
+        }
+    except Exception as e:
+        return {"error": str(e)}
+    
 # before preprocessing, need to rectify card first by
 # 1. finding the boundary of the card vs the surface its on
 # 2. warp card so it becomes 2D (removes any angling from the way the pic is took)
